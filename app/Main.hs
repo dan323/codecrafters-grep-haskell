@@ -2,12 +2,13 @@ module Main where
 
 import System.Environment
 import System.Exit
+import Data.Char(isDigit)
 
 matchPattern :: String -> String -> Bool
-matchPattern pattern input = do
-  if length pattern == 1
-    then head pattern `elem` input
-    else error $ "Unhandled pattern: " ++ pattern
+matchPattern pattern input = case pattern of
+  "\\d" -> any isDigit input
+  [c] -> head pattern `elem` input
+  otherwise -> error $ "Unhandled pattern: " ++ pattern
 
 main :: IO ()
 main = do
