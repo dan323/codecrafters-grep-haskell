@@ -27,7 +27,7 @@ default-extensions:
 - RecordWildCards
 
 library:
-  source-dirs: src
+  source-dirs: app
 
 executables:
   hs-grep-clone-exe:

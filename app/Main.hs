@@ -7,8 +7,12 @@ import Data.Char(isDigit)
 matchPattern :: String -> String -> Bool
 matchPattern pattern input = case pattern of
   "\\d" -> any isDigit input
+  "\\w" -> any isAlphaNum input
   [c] -> head pattern `elem` input
   otherwise -> error $ "Unhandled pattern: " ++ pattern
+
+isAlphaNum :: Char -> Bool
+isAlphaNum c = ((c <= 'z') && (c >= 'a')) || ((c >= '0') && (c <= '9')) || ((c <= 'Z') && (c >= 'A')) || (c == '_')
 
 main :: IO ()
 main = do
