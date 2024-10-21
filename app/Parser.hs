@@ -7,7 +7,7 @@ import Data.Functor (($>))
 import Control.Applicative ((<|>))
 import Data.Char (isDigit)
 
-data Pattern = Digit | AlphaNum | Disj [Pattern] | Char Char
+data Pattern = Digit | AlphaNum | Disj [Pattern] | Char Char | Neg [Pattern]
 
 type Parser = Parsec Void String
 
@@ -20,13 +20,16 @@ alphaNumParser :: PatternParser
 alphaNumParser = (string "\\w" $> AlphaNum) <?> "alphaNum"
 
 charParser :: PatternParser
-charParser = (Char <$> noneOf "[]\\") <?> "singleChar"
+charParser = (Char <$> noneOf "[]^\\") <?> "singleChar"
 
 patternParser :: PatternParser
 patternParser = choice [digitParser, alphaNumParser, disjointParser, charParser]
 
 disjointParser :: PatternParser
 disjointParser = (Disj <$> ((char '[' *> many patternParser) <* char ']')) <?> "choice"
+
+negativeParser :: PatternParser
+negativeParser = (Disj <$> ((char '[' *> char '^' *> many patternParser) <* char ']')) <?> "choice"
 
 match:: Pattern -> String -> Bool
 match Digit input = any isDigit input
@@ -35,6 +38,9 @@ match (Char c) input = c `elem` input
 match (Disj []) _ = False
 match (Disj [p]) input = match p input
 match (Disj (p:ps)) input = match p input || match (Disj ps) input
+match (Neg []) _ = True
+match (Neg [p]) input = not $ match p input
+match (Neg (p:ps)) input = not (match p input) && not (match (Disj ps) input)
 
 isAlphaNum :: Char -> Bool
 isAlphaNum c = ((c <= 'z') && (c >= 'a')) || isDigit c || ((c <= 'Z') && (c >= 'A')) || (c == '_')
