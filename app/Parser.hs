@@ -1,7 +1,7 @@
 module Parser (match, PatternParser(..), Pattern(..), patternParser) where
 
-import Text.Megaparsec (Parsec, satisfy, anySingle, single, many)
-import Text.Megaparsec.Char (string)
+import Text.Megaparsec (Parsec, many, noneOf, (<?>), choice)
+import Text.Megaparsec.Char (string, char)
 import Data.Void (Void)
 import Data.Functor (($>))
 import Control.Applicative ((<|>))
@@ -14,19 +14,19 @@ type Parser = Parsec Void String
 type PatternParser = Parser Pattern
 
 digitParser :: PatternParser
-digitParser = string "\\d" $> Digit
+digitParser = (string "\\d" $> Digit) <?> "digit"
 
 alphaNumParser :: PatternParser
-alphaNumParser = string "\\w" $> AlphaNum
+alphaNumParser = (string "\\w" $> AlphaNum) <?> "alphaNum"
 
 charParser :: PatternParser
-charParser = Char <$> anySingle
+charParser = (Char <$> noneOf "[]\\") <?> "singleChar"
 
 patternParser :: PatternParser
-patternParser = digitParser <|> alphaNumParser <|> disjointParser <|> charParser
+patternParser = choice [digitParser, alphaNumParser, disjointParser, charParser]
 
 disjointParser :: PatternParser
-disjointParser = Disj <$> (single '[' *> many patternParser <* single ']')
+disjointParser = (Disj <$> ((char '[' *> many patternParser) <* char ']')) <?> "choice"
 
 match:: Pattern -> String -> Bool
 match Digit input = any isDigit input
