@@ -12,9 +12,9 @@ import System.Console.GetOpt (OptDescr(Option))
 
 data Pattern = Digit     -- "\d"
     | AlphaNum           -- "\w"
-    | Disj [Char]     -- "[...]"
+    | Disj [Char]        -- "[...]"
     | Char Char          -- "a" 
-    | Neg [Char]      -- "[^...]"
+    | Neg [Char]         -- "[^...]"
     | Seq [Pattern]      -- juxtaposition
     | Start              -- "^"
     | End                -- "$"
@@ -22,6 +22,7 @@ data Pattern = Digit     -- "\d"
     | ZeroOrMore Pattern -- "*"
     | Optional Pattern   -- "?"
     | Group [Pattern]    -- "(...)"
+    | Wildcard           -- "."
     deriving Show
 
 type Parser = Parsec Void String
@@ -30,7 +31,7 @@ type PatternParser = Parser Pattern
 type Matcher = Pattern -> Parser ()
 
 reservedChars :: String
-reservedChars = "[]^\\$+*()?"
+reservedChars = "[]^\\$+*()?."
 
 digitParser :: PatternParser
 digitParser = (string "\\d" $> Digit) <?> "digit"
@@ -49,6 +50,9 @@ startParser = (char '^' $> Start) <?> "start"
 
 endParser :: PatternParser
 endParser = (char '$' $> End) <?> "end"
+
+wildcardParser :: PatternParser
+wildcardParser = (char '.' $> Wildcard) <?> "wildcard"
 
 optionalParser :: PatternParser
 optionalParser = patternParser >>= (\patt -> char '?' $> Optional patt) <?> "zeroOrOne"
@@ -69,7 +73,7 @@ patternWithRepetitionParser :: PatternParser
 patternWithRepetitionParser = choice . fmap try $ [ oneOrMoreParser, zeroOrMoreParser, optionalParser, patternParser]
 
 groupParser :: PatternParser
-groupParser = (Group <$> (char '(' *> manyTill patternWithRepetitionParser (char ')'))) <?> "choice"
+groupParser = (Group <$> (char '(' *> manyTill patternWithRepetitionParser (char ')'))) <?> "grouped"
 
 disjointParser :: PatternParser
 disjointParser = (Disj <$> (char '[' *> manyTill ((try scapedCharParser <|> charParser) >>= (\(Char c) -> pure c)) (char ']'))) <?> "choice"
@@ -94,6 +98,7 @@ match Start = do
         then pure ()
         else error "No match"
 match End = eof
+match Wildcard = anySingle $> () <?> "wildcard"
 match (Optional p) = optional (match p) $> () <?> "optional"
 match (OneOrMore p) = match p *> match (ZeroOrMore p)
 match (ZeroOrMore p) = do
