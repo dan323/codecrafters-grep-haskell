@@ -67,7 +67,7 @@ completePatterParser :: PatternParser
 completePatterParser = Seq <$> ((optional startParser >>= maybe (pure id) (const $ pure (Start :))) <*> ((many patternWithRepetitionParser <**> (optional endParser >>= maybe (pure id) (const $ pure (++ [End])))) <* eof))
 
 patternParser :: PatternParser
-patternParser = choice . fmap try $ [digitParser, alphaNumParser, negativeParser, disjointParser, groupParser, charParser]
+patternParser = choice . fmap try $ [digitParser, alphaNumParser, negativeParser, disjointParser, groupParser, wildcardParser, charParser]
 
 patternWithRepetitionParser :: PatternParser
 patternWithRepetitionParser = choice . fmap try $ [ oneOrMoreParser, zeroOrMoreParser, optionalParser, patternParser]
