@@ -16,15 +16,11 @@ main = do
               Left x -> error $ errorBundlePretty x
               Right y -> y
 
-  print patt
   if head args /= "-E"
     then do
       putStrLn "Expected first argument to be '-E'"
       exitFailure
     else do
-      either (\x -> do
-                  putStrLn $ errorBundlePretty x
-                  exitFailure
-              )
+      either (const exitFailure)
              (const exitSuccess)
                 $ parse (P.partialMatch P.match patt) "" input
