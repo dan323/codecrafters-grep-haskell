@@ -8,6 +8,7 @@ import Control.Applicative ((<|>), (<**>))
 import Data.Char (isDigit)
 import Control.Applicative.Combinators (option, skipManyTill, optional)
 import qualified Data.Set as Set (empty)
+import System.Console.GetOpt (OptDescr(Option))
 
 data Pattern = Digit     -- "\d"
     | AlphaNum           -- "\w"
@@ -19,6 +20,7 @@ data Pattern = Digit     -- "\d"
     | End                -- "$"
     | OneOrMore Pattern  -- "+"
     | ZeroOrMore Pattern -- "*"
+    | Optional Pattern   -- "?"
     | Group [Pattern]    -- "(...)"
     deriving Show
 
@@ -27,6 +29,9 @@ type Parser = Parsec Void String
 type PatternParser = Parser Pattern
 type Matcher = Pattern -> Parser ()
 
+reservedChars :: String
+reservedChars = "[]^\\$+*()?"
+
 digitParser :: PatternParser
 digitParser = (string "\\d" $> Digit) <?> "digit"
 
@@ -34,16 +39,19 @@ alphaNumParser :: PatternParser
 alphaNumParser = (string "\\w" $> AlphaNum) <?> "alphaNum"
 
 scapedCharParser :: PatternParser
-scapedCharParser = Char <$> (char '\\' *> oneOf "[]^\\$+*()")
+scapedCharParser = Char <$> (char '\\' *> oneOf reservedChars)
 
 charParser :: PatternParser
-charParser = (Char <$> noneOf "[]^\\$+*()") <?> "singleChar"
+charParser = (Char <$> noneOf reservedChars) <?> "singleChar"
 
 startParser :: PatternParser
 startParser = (char '^' $> Start) <?> "start"
 
 endParser :: PatternParser
 endParser = (char '$' $> End) <?> "end"
+
+optionalParser :: PatternParser
+optionalParser = patternParser >>= (\patt -> char '?' $> Optional patt) <?> "zeroOrOne"
 
 oneOrMoreParser :: PatternParser
 oneOrMoreParser = patternParser >>= (\patt -> char '+' $> OneOrMore patt) <?> "oneOrMore"
@@ -58,7 +66,7 @@ patternParser :: PatternParser
 patternParser = choice . fmap try $ [digitParser, alphaNumParser, negativeParser, disjointParser, groupParser, charParser]
 
 patternWithRepetitionParser :: PatternParser
-patternWithRepetitionParser = choice . fmap try $ [ oneOrMoreParser, zeroOrMoreParser, patternParser]
+patternWithRepetitionParser = choice . fmap try $ [ oneOrMoreParser, zeroOrMoreParser, optionalParser, patternParser]
 
 groupParser :: PatternParser
 groupParser = (Group <$> (char '(' *> manyTill patternWithRepetitionParser (char ')'))) <?> "choice"
@@ -86,6 +94,7 @@ match Start = do
         then pure ()
         else error "No match"
 match End = eof
+match (Optional p) = optional (match p) $> () <?> "optional"
 match (OneOrMore p) = match p *> match (ZeroOrMore p)
 match (ZeroOrMore p) = do
         may <- optional (match p)
