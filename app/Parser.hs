@@ -8,11 +8,10 @@ import Control.Applicative ((<|>), (<**>))
 import Data.Char (isDigit)
 import Control.Applicative.Combinators (option, skipManyTill, optional)
 import qualified Data.Set as Set (empty)
-import System.Console.GetOpt (OptDescr(Option))
 
 data Pattern = Digit     -- "\d"
     | AlphaNum           -- "\w"
-    | Disj [Char]        -- "[...]"
+    | Disj [Pattern]     -- "[...]" or "(...|...)"
     | Char Char          -- "a" 
     | Neg [Char]         -- "[^...]"
     | Seq [Pattern]      -- juxtaposition
@@ -31,7 +30,7 @@ type PatternParser = Parser Pattern
 type Matcher = Pattern -> Parser ()
 
 reservedChars :: String
-reservedChars = "[]^\\$+*()?."
+reservedChars = "[]^\\$+*()?.|/"
 
 digitParser :: PatternParser
 digitParser = (string "\\d" $> Digit) <?> "digit"
@@ -42,8 +41,11 @@ alphaNumParser = (string "\\w" $> AlphaNum) <?> "alphaNum"
 scapedCharParser :: PatternParser
 scapedCharParser = Char <$> (char '\\' *> oneOf reservedChars)
 
+regularCharParser :: PatternParser
+regularCharParser = (Char <$> noneOf reservedChars) <?> "singleChar"
+
 charParser :: PatternParser
-charParser = (Char <$> noneOf reservedChars) <?> "singleChar"
+charParser = try scapedCharParser <|> regularCharParser
 
 startParser :: PatternParser
 startParser = (char '^' $> Start) <?> "start"
@@ -67,7 +69,7 @@ completePatterParser :: PatternParser
 completePatterParser = Seq <$> ((optional startParser >>= maybe (pure id) (const $ pure (Start :))) <*> ((many patternWithRepetitionParser <**> (optional endParser >>= maybe (pure id) (const $ pure (++ [End])))) <* eof))
 
 patternParser :: PatternParser
-patternParser = choice . fmap try $ [digitParser, alphaNumParser, negativeParser, disjointParser, groupParser, wildcardParser, charParser]
+patternParser = choice . fmap try $ [digitParser, alphaNumParser, negativeParser, disjointCharParser, disjointPatternParser, groupParser, wildcardParser, charParser]
 
 patternWithRepetitionParser :: PatternParser
 patternWithRepetitionParser = choice . fmap try $ [ oneOrMoreParser, zeroOrMoreParser, optionalParser, patternParser]
@@ -75,18 +77,25 @@ patternWithRepetitionParser = choice . fmap try $ [ oneOrMoreParser, zeroOrMoreP
 groupParser :: PatternParser
 groupParser = (Group <$> (char '(' *> manyTill patternWithRepetitionParser (char ')'))) <?> "grouped"
 
-disjointParser :: PatternParser
-disjointParser = (Disj <$> (char '[' *> manyTill ((try scapedCharParser <|> charParser) >>= (\(Char c) -> pure c)) (char ']'))) <?> "choice"
+disjointCharParser :: PatternParser
+disjointCharParser = (Disj <$> (char '[' *> manyTill charParser (char ']'))) <?> "choice"
+
+disjointPatternParser :: PatternParser
+disjointPatternParser = (Disj <$> (char '(' *> ((:) <$> (Seq <$> many patternWithRepetitionParser) <*> manyTill (char '|' *> (Seq <$> many patternWithRepetitionParser)) (char ')')))) <?> "disjoint"
 
 negativeParser :: PatternParser
-negativeParser = (Neg <$> (string "[^" *> manyTill ((try scapedCharParser <|> charParser) >>= (\(Char c) -> pure c)) (char ']'))) <?> "negativeGroup"
+negativeParser = (Neg <$> (string "[^" *> manyTill (charParser >>= returnChar) (char ']'))) <?> "negativeGroup"
+    where
+        returnChar t = case t of
+            Char c -> pure c
+            _      -> error "Char pattern expected"
 
 match:: Matcher
 match Digit = satisfy isDigit $> () <?> "digit"
 match AlphaNum = (satisfy isAlphaNum $> ()) <?> "alphaNum"
 match (Char c) = (satisfy (==c) $> ()) <?> "char"
 match (Disj []) = error "this cannot be" <?> "disjEmpty"
-match (Disj (p:ps)) = match (Char p) <|> match (Disj ps) <?> "disj"
+match (Disj (p:ps)) = match p <|> match (Disj ps) <?> "disj"
 match (Neg []) = (anySingle $> ()) <?> "negGroupEmpty"
 match (Neg (p:ps)) = try (match (Char p) *> error "This is an error") <|> match (Neg ps) <?> "negGroup"
 match (Seq []) = pure () <?> "seqEmpty"
