@@ -3,7 +3,7 @@ module Main where
 import Data.Char (isDigit)
 import System.Environment (getArgs)
 import System.Exit (exitFailure, exitSuccess)
-import Parser as P (completePatterParser, match)
+import Parser as P (completePatterParser, partialMatch, match, partialMatch)
 import Text.Megaparsec (parse,errorBundlePretty, match)
 import Data.Bool (bool)
 
@@ -22,6 +22,9 @@ main = do
       putStrLn "Expected first argument to be '-E'"
       exitFailure
     else do
-      either (const exitFailure) 
-             (bool exitFailure exitSuccess) 
-                $ parse (P.match patt) "" input
+      either (\x -> do
+                  putStrLn $ errorBundlePretty x
+                  exitFailure
+              )
+             (const exitSuccess)
+                $ parse (P.partialMatch P.match patt) "" input
