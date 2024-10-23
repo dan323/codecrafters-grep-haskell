@@ -14,6 +14,7 @@ import Data.Char (isDigit)
 import Control.Applicative.Combinators (option, skipManyTill, optional)
 import qualified Data.Set as Set (empty)
 import Data.List as L (singleton)
+import Text.Megaparsec.Debug (dbg)
 
 data Pattern = Digit     -- "\d"
     | AlphaNum           -- "\w"
@@ -81,7 +82,7 @@ completePatterParser :: FullPatternParser
 completePatterParser = (optional startParser >>= maybe (pure id) (const $ pure (Start :))) <*> ((many patternWithRepetitionParser <**> (optional endParser >>= maybe (pure id) (const $ pure (++ [End])))) <* eof)
 
 patternParser :: PatternParser
-patternParser = choice . fmap try $ [digitParser, alphaNumParser, negativeParser, disjointCharParser, disjointPatternParser, groupParser, wildcardParser, charParser, backReference]
+patternParser = choice . fmap try $ [digitParser, alphaNumParser, negativeParser, groupParser, disjointCharParser, disjointPatternParser, groupParser, wildcardParser, charParser, backReference]
 
 patternWithRepetitionParser :: PatternParser
 patternWithRepetitionParser = choice . fmap try $ [ oneOrMoreParser, zeroOrMoreParser, optionalParser, patternParser]
@@ -135,7 +136,7 @@ match = matchWithGroups []
             let consumed = T.take (end-initial) input
             let patt = Char <$> T.unpack consumed
             matchWithGroups (gs ++ [patt]) xs
-        matchWithGroups gs (BackRef x: ps) = matchWithGroups gs ((gs!!x) ++ ps)
+        matchWithGroups gs (BackRef x: ps) = matchWithGroups gs ((gs!!(x-1)) ++ ps)
 
 
 partialMatch :: Matcher -> Matcher
