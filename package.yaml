@@ -18,6 +18,7 @@ dependencies:
 - unordered-containers # HashSet, HashMap
 - hashable # when using your own data types with unordered-containers
 - mtl # monad transformers to help with nested monads
+- text
 
 default-extensions:
 - BlockArguments

@@ -6,6 +6,7 @@ import System.Exit (exitFailure, exitSuccess)
 import Parser as P (completePatterParser, partialMatch, match, partialMatch)
 import Text.Megaparsec (parse, errorBundlePretty, match)
 import Data.Bool (bool)
+import Data.Text as T (pack)
 
 main :: IO ()
 main = do
@@ -13,7 +14,7 @@ main = do
   let pattern = args !! 1
   input <- getLine
   putStr "Parsing pattern:"
-  let patt = case parse P.completePatterParser "" pattern of
+  let patt = case parse P.completePatterParser "" $ T.pack pattern of
               Left x -> error $ errorBundlePretty x
               Right y -> y
 
@@ -27,4 +28,4 @@ main = do
                 putStrLn $ errorBundlePretty e
                 exitFailure)
              (const exitSuccess)
-                $ parse (P.partialMatch P.match patt) "" input
+                $ parse (P.partialMatch P.match patt) "" $ T.pack input
