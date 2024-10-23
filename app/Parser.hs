@@ -1,6 +1,6 @@
 module Parser (partialMatch, match, PatternParser(..), Pattern(..), completePatterParser) where
 
-import Text.Megaparsec (Parsec, many, noneOf, (<?>), choice, try, satisfy, anySingle, token, MonadParsec (eof), manyTill, getParserState, stateOffset, oneOf)
+import Text.Megaparsec (Parsec, many, noneOf, (<?>), choice, try, satisfy, anySingle, token, MonadParsec (eof), manyTill, getParserState, stateOffset, oneOf, statePosState)
 import Text.Megaparsec.Char (string, char)
 import Data.Void (Void)
 import Data.Functor (($>))
@@ -22,6 +22,7 @@ data Pattern = Digit     -- "\d"
     | Optional Pattern   -- "?"
     | Group [Pattern]    -- "(...)"
     | Wildcard           -- "."
+    | BackRef Int        -- "\1"
     deriving Show
 
 type Parser = Parsec Void String
@@ -55,6 +56,9 @@ endParser = (char '$' $> End) <?> "end"
 
 wildcardParser :: PatternParser
 wildcardParser = (char '.' $> Wildcard) <?> "wildcard"
+
+backReference :: PatternParser
+backReference = BackRef <$> (char '\\' *> (read <$> many (satisfy isDigit)))
 
 optionalParser :: PatternParser
 optionalParser = patternParser >>= (\patt -> char '?' $> Optional patt) <?> "zeroOrOne"
@@ -93,12 +97,16 @@ negativeParser = (Neg <$> (string "[^" *> manyTill (charParser >>= returnChar) (
 match:: Matcher
 match Digit = satisfy isDigit $> () <?> "digit"
 match AlphaNum = (satisfy isAlphaNum $> ()) <?> "alphaNum"
-match (Char c) = (satisfy (==c) $> ()) <?> "char"
+match (Char c) = try (satisfy (==c) $> ()) <?> ("char " ++ [c])
 match (Disj []) = error "this cannot be" <?> "disjEmpty"
 match (Disj (p:ps)) = match p <|> match (Disj ps) <?> "disj"
 match (Neg []) = (anySingle $> ()) <?> "negGroupEmpty"
 match (Neg (p:ps)) = try (match (Char p) *> error "This is an error") <|> match (Neg ps) <?> "negGroup"
 match (Seq []) = pure () <?> "seqEmpty"
+-- The quantifiers need to be reverted token by token in case of failure down the regex
+match (Seq ((Optional p):ps)) = try (match (Optional p) *> match (Seq ps)) <|> match (Seq ps) <?> "seqZeroOrMore"
+match (Seq ((ZeroOrMore p):ps)) = try (match (ZeroOrMore p) *> match (Seq ps)) <|> match (Seq ps) <?> "seqZeroOrMore"
+match (Seq ((OneOrMore p):ps)) = match p *> match (Seq (ZeroOrMore p:ps)) <?> "seqZeroOrMore"
 match (Seq (p:ps)) = (match p *> match (Seq ps)) <?> "seq"
 match Start = do
     state <- getParserState
@@ -107,13 +115,13 @@ match Start = do
         then pure ()
         else error "No match"
 match End = eof
-match Wildcard = anySingle $> () <?> "wildcard"
+match Wildcard =  try (anySingle $> ()) <?> "wildcard"
 match (Optional p) = optional (match p) $> () <?> "optional"
 match (OneOrMore p) = match p *> match (ZeroOrMore p)
 match (ZeroOrMore p) = do
         may <- optional (match p)
         case may of
-            Just () -> match (ZeroOrMore p)
+            Just () -> try (match (ZeroOrMore p)) <|> pure ()
             Nothing -> pure ()
 
 

@@ -23,6 +23,8 @@ main = do
       putStrLn "Expected first argument to be '-E'"
       exitFailure
     else do
-      either (const exitFailure)
+      either (\e -> do
+                putStrLn $ errorBundlePretty e
+                exitFailure)
              (const exitSuccess)
                 $ parse (P.partialMatch P.match patt) "" input
