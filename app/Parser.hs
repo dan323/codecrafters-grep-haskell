@@ -1,10 +1,12 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE GADTs #-}
+{-# LANGUAGE FlexibleContexts #-}
 
 module Parser (partialMatch, match, PatternParser(..), Pattern(..), completePatterParser) where
 
-import Text.Megaparsec (Parsec, many, noneOf, (<?>), choice, try, satisfy, anySingle, token, MonadParsec (eof), manyTill, getParserState, stateOffset, oneOf, statePosState)
+import Text.Megaparsec (Parsec, many, noneOf, (<?>), choice, try, satisfy, anySingle, token, MonadParsec (eof), manyTill, getParserState, stateOffset, oneOf, stateInput)
 import Text.Megaparsec.Char (string, char)
-import Data.Text as T (Text)
+import Data.Text as T (Text, take, unpack)
 import Data.Void (Void)
 import Data.Functor (($>))
 import Control.Applicative ((<|>), (<**>))
@@ -104,13 +106,13 @@ match:: Matcher
 match = matchWithGroups []
     where
         matchWithGroups _ [] = pure () <?> "seqEmpty"
-        matchWithGroups gs (Digit:ps) = satisfy isDigit *> (matchWithGroups gs ps)
-        matchWithGroups gs (AlphaNum:ps) = satisfy isAlphaNum *> (matchWithGroups gs ps)
-        matchWithGroups gs (Char c: ps) = satisfy (==c) *> (matchWithGroups gs ps)
+        matchWithGroups gs (Digit:ps) = satisfy isDigit *> matchWithGroups gs ps
+        matchWithGroups gs (AlphaNum:ps) = satisfy isAlphaNum *> matchWithGroups gs ps
+        matchWithGroups gs (Char c: ps) = satisfy (==c) *> matchWithGroups gs ps
         matchWithGroups _ (Disj []:_) = error "this cannot be" <?> "disjEmpty"
         matchWithGroups gs (Disj (p:ps):xs) = try (matchWithGroups gs (p ++ xs)) <|> matchWithGroups gs (Disj ps:xs) <?> "disj"
         matchWithGroups gs (Neg []:xs) = (anySingle $> ()) <?> "negGroupEmpty"
-        matchWithGroups gs (Neg (p:ps):xs) = try (char p *> (error "This is an error")) <|> matchWithGroups gs (Neg ps:xs) <?> "negGroup"
+        matchWithGroups gs (Neg (p:ps):xs) = try (char p *> error "This is an error") <|> matchWithGroups gs (Neg ps:xs) <?> "negGroup"
         matchWithGroups gs (((Optional p):ps)) = try (matchWithGroups gs (p:ps)) <|> matchWithGroups gs ps <?> "seqZeroOrMore"
         matchWithGroups gs (((ZeroOrMore p):ps)) = try (matchWithGroups gs (p:ZeroOrMore p:ps)) <|> matchWithGroups gs ps <?> "seqZeroOrMore"
         matchWithGroups gs (((OneOrMore p):ps)) = matchWithGroups gs (p:ZeroOrMore p:ps) <?> "seqZeroOrMore"
@@ -123,7 +125,16 @@ match = matchWithGroups []
         matchWithGroups _ [End] = eof
         matchWithGroups _ (End:xs) = error "Expected end of input"
         matchWithGroups gs (Wildcard:xs) = (anySingle *> matchWithGroups gs xs) <?> "wildcard"
-        matchWithGroups gs (Group ps: xs) = matchWithGroups (gs ++ [ps]) (ps++xs)
+        matchWithGroups gs (Group ps: xs) = do
+            statusA <- getParserState
+            let input = stateInput statusA
+            let initial = stateOffset statusA
+            _ <- matchWithGroups gs ps
+            statusB <- getParserState
+            let end = stateOffset statusB
+            let consumed = T.take (end-initial) input
+            let patt = Char <$> T.unpack consumed
+            matchWithGroups (gs ++ [patt]) xs
         matchWithGroups gs (BackRef x: ps) = matchWithGroups gs ((gs!!x) ++ ps)
 
 

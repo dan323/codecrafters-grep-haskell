@@ -11,10 +11,10 @@ import Data.Text as T (pack)
 main :: IO ()
 main = do
   args <- getArgs
-  let pattern = args !! 1
+  let inputPattern = args !! 1
   input <- getLine
   putStr "Parsing pattern:"
-  let patt = case parse P.completePatterParser "" $ T.pack pattern of
+  let patt = case parse P.completePatterParser "" $ T.pack inputPattern of
               Left x -> error $ errorBundlePretty x
               Right y -> y
 
