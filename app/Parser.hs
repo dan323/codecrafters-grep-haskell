@@ -91,7 +91,7 @@ groupParser :: PatternParser
 groupParser = (Group <$> (char '(' *> manyTill patternWithRepetitionParser (char ')'))) <?> "grouped"
 
 disjointCharParser :: PatternParser
-disjointCharParser = (Disj . L.singleton <$> (char '[' *> manyTill charParser (char ']'))) <?> "choice"
+disjointCharParser = (Disj <$> (char '[' *> manyTill (L.singleton <$> charParser) (char ']'))) <?> "choice"
 
 disjointPatternParser :: PatternParser
 disjointPatternParser = (Disj <$> (char '(' *> ((:) <$> many patternWithRepetitionParser <*> manyTill (char '|' *> many patternWithRepetitionParser) (char ')')))) <?> "disjoint"
