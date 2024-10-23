@@ -104,7 +104,7 @@ match (Neg []) = (anySingle $> ()) <?> "negGroupEmpty"
 match (Neg (p:ps)) = try (match (Char p) *> error "This is an error") <|> match (Neg ps) <?> "negGroup"
 match (Seq []) = pure () <?> "seqEmpty"
 -- The quantifiers need to be reverted token by token in case of failure down the regex
-match (Seq ((Optional p):ps)) = try (match (Optional p) *> match (Seq ps)) <|> match (Seq ps) <?> "seqZeroOrMore"
+match (Seq ((Optional p):ps)) = try (match p *> match (Seq ps)) <|> match (Seq ps) <?> "seqZeroOrMore"
 match (Seq ((ZeroOrMore p):ps)) = try (match p *> match (Seq (ZeroOrMore p:ps))) <|> match (Seq ps) <?> "seqZeroOrMore"
 match (Seq ((OneOrMore p):ps)) = match p *> match (Seq (ZeroOrMore p:ps)) <?> "seqZeroOrMore"
 match (Seq (p:ps)) = (match p *> match (Seq ps)) <?> "seq"
