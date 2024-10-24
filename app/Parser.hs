@@ -1,40 +1,44 @@
-{-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE GADTs #-}
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE GADTs #-}
+{-# LANGUAGE OverloadedStrings #-}
 
-module Parser (partialMatch, match, PatternParser(..), Pattern(..), completePatterParser) where
+module Parser (partialMatch, match, PatternParser (..), Pattern (..), completePatterParser) where
 
-import Text.Megaparsec (Parsec, many, noneOf, (<?>), choice, try, satisfy, anySingle, token, MonadParsec (eof), manyTill, getParserState, stateOffset, oneOf, stateInput)
-import Text.Megaparsec.Char (string, char)
+import Control.Applicative ((<**>), (<|>))
+import Control.Applicative.Combinators (option, optional, skipManyTill)
+import Data.Char (isDigit)
+import Data.Functor (($>))
+import Data.List as L (singleton)
+import Data.Set qualified as Set (empty)
 import Data.Text as T (Text, take, unpack)
 import Data.Void (Void)
-import Data.Functor (($>))
-import Control.Applicative ((<|>), (<**>))
-import Data.Char (isDigit)
-import Control.Applicative.Combinators (option, skipManyTill, optional)
-import qualified Data.Set as Set (empty)
-import Data.List as L (singleton)
-import Text.Megaparsec.Debug (dbg)
+import Text.Megaparsec (MonadParsec (eof), Parsec, anySingle, choice, getParserState, many, manyTill, noneOf, oneOf, satisfy, stateInput, stateOffset, token, try, (<?>))
+import Text.Megaparsec.Char (char, string)
+import Text.Megaparsec.Debug (dbg')
 
-data Pattern = Digit     -- "\d"
-    | AlphaNum           -- "\w"
-    | Disj [[Pattern]]     -- "[...]" or "(...|...)"
-    | Char Char          -- "a" 
-    | Neg [Char]         -- "[^...]"
-    | Start              -- "^"
-    | End                -- "$"
-    | OneOrMore Pattern  -- "+"
-    | ZeroOrMore Pattern -- "*"
-    | Optional Pattern   -- "?"
-    | Group [Pattern]    -- "(...)"
-    | Wildcard           -- "."
-    | BackRef Int        -- "\1"
-    deriving Show
+data Pattern
+  = Digit -- "\d"
+  | AlphaNum -- "\w"
+  | Alt [Pattern] [Pattern] -- "(...|...)"
+  | Pos [Char]
+  | Char Char -- "a"
+  | Neg [Char] -- "[^...]"
+  | Start -- "^"
+  | End -- "$"
+  | OneOrMore Pattern -- "+"
+  | ZeroOrMore Pattern -- "*"
+  | Optional Pattern -- "?"
+  | Group [Pattern] -- "(...)"
+  | Wildcard -- "."
+  | BackRef Int -- "\1"
+  deriving (Show)
 
 type Parser = Parsec Void T.Text
 
 type PatternParser = Parser Pattern
+
 type FullPatternParser = Parser [Pattern]
+
 type Matcher = FullPattern -> Parser ()
 
 type FullPattern = [Pattern]
@@ -43,101 +47,115 @@ reservedChars :: String
 reservedChars = "[]^\\$+*()?.|/"
 
 digitParser :: PatternParser
-digitParser = (string "\\d" $> Digit) <?> "digit"
+digitParser = string "\\d" $> Digit
 
 alphaNumParser :: PatternParser
-alphaNumParser = (string "\\w" $> AlphaNum) <?> "alphaNum"
+alphaNumParser = string "\\w" $> AlphaNum
 
 scapedCharParser :: PatternParser
 scapedCharParser = Char <$> (char '\\' *> oneOf reservedChars)
 
 regularCharParser :: PatternParser
-regularCharParser = (Char <$> noneOf reservedChars) <?> "singleChar"
+regularCharParser = Char <$> noneOf reservedChars
 
 charParser :: PatternParser
 charParser = try scapedCharParser <|> regularCharParser
 
 startParser :: PatternParser
-startParser = (char '^' $> Start) <?> "start"
+startParser = char '^' $> Start
 
 endParser :: PatternParser
-endParser = (char '$' $> End) <?> "end"
+endParser = char '$' $> End
 
 wildcardParser :: PatternParser
-wildcardParser = (char '.' $> Wildcard) <?> "wildcard"
+wildcardParser = char '.' $> Wildcard
 
 backReference :: PatternParser
 backReference = BackRef <$> (char '\\' *> (read <$> many (satisfy isDigit)))
 
 optionalParser :: PatternParser
-optionalParser = patternParser >>= (\patt -> char '?' $> Optional patt) <?> "zeroOrOne"
+optionalParser = patternParser >>= (\patt -> char '?' $> Optional patt)
 
 oneOrMoreParser :: PatternParser
-oneOrMoreParser = patternParser >>= (\patt -> char '+' $> OneOrMore patt) <?> "oneOrMore"
+oneOrMoreParser = patternParser >>= (\patt -> char '+' $> OneOrMore patt)
 
 zeroOrMoreParser :: PatternParser
-zeroOrMoreParser = patternParser >>= (\patt -> char '*' $> ZeroOrMore patt) <?> "zeroOrMore"
+zeroOrMoreParser = patternParser >>= (\patt -> char '*' $> ZeroOrMore patt)
 
 completePatterParser :: FullPatternParser
-completePatterParser = (optional startParser >>= maybe (pure id) (const $ pure (Start :))) <*> ((many patternWithRepetitionParser <**> (optional endParser >>= maybe (pure id) (const $ pure (++ [End])))) <* eof)
+completePatterParser =
+  (optional startParser >>= maybe (pure id) (const $ pure (Start :)))
+    <*> ((many patternWithRepetitionParser <**> (optional endParser >>= maybe (pure id) (const $ pure (++ [End])))) <* eof)
 
 patternParser :: PatternParser
-patternParser = choice . fmap try $ [digitParser, alphaNumParser, negativeParser, groupParser, disjointCharParser, disjointPatternParser, groupParser, wildcardParser, charParser, backReference]
+patternParser =
+  choice . fmap try $
+    [ digitParser,
+      alphaNumParser,
+      negativeParser,
+      groupParser,
+      disjointCharParser,
+      disjointPatternParser,
+      groupParser,
+      wildcardParser,
+      charParser,
+      backReference
+    ]
 
 patternWithRepetitionParser :: PatternParser
-patternWithRepetitionParser = choice . fmap try $ [ oneOrMoreParser, zeroOrMoreParser, optionalParser, patternParser]
+patternWithRepetitionParser = choice . fmap try $ [oneOrMoreParser, zeroOrMoreParser, optionalParser, patternParser]
 
 groupParser :: PatternParser
-groupParser = (Group <$> (char '(' *> manyTill patternWithRepetitionParser (char ')'))) <?> "grouped"
+groupParser = Group <$> (char '(' *> manyTill patternWithRepetitionParser (char ')'))
 
 disjointCharParser :: PatternParser
-disjointCharParser = (Disj <$> (char '[' *> manyTill (L.singleton <$> charParser) (char ']'))) <?> "choice"
+disjointCharParser = Pos <$> (char '[' *> manyTill ((\(Char c) -> c) <$> charParser) (char ']'))
 
 disjointPatternParser :: PatternParser
-disjointPatternParser = (Disj <$> (char '(' *> ((:) <$> many patternWithRepetitionParser <*> manyTill (char '|' *> many patternWithRepetitionParser) (char ')')))) <?> "disjoint"
+disjointPatternParser = char '(' *> (Alt <$> many patternWithRepetitionParser) <*> (char '|' *> many patternWithRepetitionParser) <* char ')'
 
 negativeParser :: PatternParser
-negativeParser = (Neg <$> (string "[^" *> manyTill (charParser >>= returnChar) (char ']'))) <?> "negativeGroup"
-    where
-        returnChar t = case t of
-            Char c -> pure c
-            _      -> error "Char pattern expected"
+negativeParser = Neg <$> (string "[^" *> manyTill (charParser >>= returnChar) (char ']'))
+  where
+    returnChar t = case t of
+      Char c -> pure c
+      _ -> error "Char pattern expected"
 
-match:: Matcher
+match :: Matcher
 match = matchWithGroups []
-    where
-        matchWithGroups _ [] = pure () <?> "seqEmpty"
-        matchWithGroups gs (Digit:ps) = satisfy isDigit *> matchWithGroups gs ps
-        matchWithGroups gs (AlphaNum:ps) = satisfy isAlphaNum *> matchWithGroups gs ps
-        matchWithGroups gs (Char c: ps) = satisfy (==c) *> matchWithGroups gs ps
-        matchWithGroups _ (Disj []:_) = error "this cannot be" <?> "disjEmpty"
-        matchWithGroups gs (Disj (p:ps):xs) = try (matchWithGroups gs (p ++ xs)) <|> matchWithGroups gs (Disj ps:xs) <?> "disj"
-        matchWithGroups gs (Neg []:xs) = (anySingle $> ()) <?> "negGroupEmpty"
-        matchWithGroups gs (Neg (p:ps):xs) = try (char p *> error "This is an error") <|> matchWithGroups gs (Neg ps:xs) <?> "negGroup"
-        matchWithGroups gs (((Optional p):ps)) = try (matchWithGroups gs (p:ps)) <|> matchWithGroups gs ps <?> "seqZeroOrMore"
-        matchWithGroups gs (((ZeroOrMore p):ps)) = try (matchWithGroups gs (p:ZeroOrMore p:ps)) <|> matchWithGroups gs ps <?> "seqZeroOrMore"
-        matchWithGroups gs (((OneOrMore p):ps)) = matchWithGroups gs (p:ZeroOrMore p:ps) <?> "seqZeroOrMore"
-        matchWithGroups _ (Start:ps) = do
-            state <- getParserState
-            let processed = stateOffset state
-            if processed == 0
-                then pure ()
-                else error "No match"
-        matchWithGroups _ [End] = eof
-        matchWithGroups _ (End:xs) = error "Expected end of input"
-        matchWithGroups gs (Wildcard:xs) = (anySingle *> matchWithGroups gs xs) <?> "wildcard"
-        matchWithGroups gs (Group ps: xs) = do
-            statusA <- getParserState
-            let input = stateInput statusA
-            let initial = stateOffset statusA
-            _ <- matchWithGroups gs ps
-            statusB <- getParserState
-            let end = stateOffset statusB
-            let consumed = T.take (end-initial) input
-            let patt = Char <$> T.unpack consumed
-            matchWithGroups (gs ++ [patt]) xs
-        matchWithGroups gs (BackRef x: ps) = matchWithGroups gs ((gs!!(x-1)) ++ ps)
-
+  where
+    matchWithGroups _ [] = pure ()
+    matchWithGroups gs (Digit : ps) = satisfy isDigit *> matchWithGroups gs ps
+    matchWithGroups gs (AlphaNum : ps) = satisfy isAlphaNum *> matchWithGroups gs ps
+    matchWithGroups gs (Char c : ps) = dbg' ("charDebug[" ++ [c] ++ "]") (char c) *> matchWithGroups gs ps
+    matchWithGroups _ (Pos [] : _) = error "this cannot be"
+    matchWithGroups gs (Alt p1 p2 : xs) = try (matchWithGroups gs (p1 ++ xs)) <|> dbg' "altDebug2" (matchWithGroups gs (p2 ++ xs))
+    matchWithGroups gs (Pos (c : cs) : xs) = dbg' "posDebug" (matchWithGroups gs (Alt [Char c] [Pos cs] : xs))
+    matchWithGroups gs (Neg [] : xs) = anySingle $> ()
+    matchWithGroups gs (Neg (p : ps) : xs) = try (char p *> error "This is an error") <|> matchWithGroups gs (Neg ps : xs)
+    matchWithGroups gs (((Optional p) : ps)) = try (matchWithGroups gs (p : ps)) <|> matchWithGroups gs ps
+    matchWithGroups gs (((ZeroOrMore p) : ps)) = try (dbg' "zeroOrMoreFinishedDbg" (matchWithGroups gs ps)) <|> dbg' "zeroOrMoreDgb" (matchWithGroups gs (p : ZeroOrMore p : ps))
+    matchWithGroups gs (((OneOrMore p) : ps)) = matchWithGroups gs (p : ZeroOrMore p : ps)
+    matchWithGroups _ (Start : ps) = do
+      state <- getParserState
+      let processed = stateOffset state
+      if processed == 0
+        then pure ()
+        else error "No match"
+    matchWithGroups _ [End] = eof
+    matchWithGroups _ (End : xs) = error "Expected end of input"
+    matchWithGroups gs (Wildcard : xs) = anySingle *> matchWithGroups gs xs
+    matchWithGroups gs (Group ps : xs) = dbg' "groupDbg" $ do
+      statusA <- getParserState
+      let input = stateInput statusA
+      let initial = stateOffset statusA
+      _ <- matchWithGroups gs ps
+      statusB <- getParserState
+      let end = stateOffset statusB
+      let consumed = T.take (end - initial) input
+      let patt = Char <$> T.unpack consumed
+      matchWithGroups (gs ++ [patt]) xs
+    matchWithGroups gs (BackRef x : ps) = dbg' "groupDbg" $ matchWithGroups gs ((gs !! (x - 1)) ++ ps)
 
 partialMatch :: Matcher -> Matcher
 partialMatch match p = skipManyTill anySingle (try $ match p) <* many anySingle <* eof

@@ -1,12 +1,12 @@
 module Main where
 
+import Data.Bool (bool)
 import Data.Char (isDigit)
+import Data.Text as T (pack)
+import Parser as P (completePatterParser, match, partialMatch)
 import System.Environment (getArgs)
 import System.Exit (exitFailure, exitSuccess)
-import Parser as P (completePatterParser, partialMatch, match, partialMatch)
-import Text.Megaparsec (parse, errorBundlePretty, match)
-import Data.Bool (bool)
-import Data.Text as T (pack)
+import Text.Megaparsec (errorBundlePretty, match, parse)
 
 main :: IO ()
 main = do
@@ -15,8 +15,8 @@ main = do
   input <- getLine
   putStr "Parsing pattern:"
   let patt = case parse P.completePatterParser "" $ T.pack inputPattern of
-              Left x -> error $ errorBundlePretty x
-              Right y -> y
+        Left x -> error $ errorBundlePretty x
+        Right y -> y
 
   print patt
   if head args /= "-E"
@@ -24,8 +24,11 @@ main = do
       putStrLn "Expected first argument to be '-E'"
       exitFailure
     else do
-      either (\e -> do
-                putStrLn $ errorBundlePretty e
-                exitFailure)
-             (const exitSuccess)
-                $ parse (P.partialMatch P.match patt) "" $ T.pack input
+      either
+        ( \e -> do
+            putStrLn $ errorBundlePretty e
+            exitFailure
+        )
+        (const exitSuccess)
+        $ parse (P.partialMatch P.match patt) ""
+        $ T.pack input
