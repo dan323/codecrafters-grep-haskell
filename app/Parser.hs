@@ -140,12 +140,12 @@ match = matchWithGroups []
     matchWithGroups gs (((Optional p) : ps)) = try (matchWithGroups gs (p : ps)) <|> matchWithGroups gs ps
     matchWithGroups gs (((ZeroOrMore p) : ps)) = try (matchWithGroups gs (p: ZeroOrMore p : ps)) <|> matchWithGroups gs ps
     matchWithGroups gs (((OneOrMore p) : ps)) = matchWithGroups gs (p : ZeroOrMore p : ps)
-    matchWithGroups _ (Start : ps) = do
+    matchWithGroups gs (Start : ps) = do
       state <- getParserState
       let processed = stateOffset state
       if processed == 0
-        then pure ()
-        else error "Invalid Pattern"
+        then matchWithGroups gs ps
+        else parseError $ FancyError processed Set.empty
     matchWithGroups _ [End] = eof
     matchWithGroups _ (End : xs) = error "Invalid Pattern"
     matchWithGroups gs (Wildcard : xs) = anySingle *> matchWithGroups gs xs
