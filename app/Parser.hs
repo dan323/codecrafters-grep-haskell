@@ -12,8 +12,8 @@ import Data.List as L (singleton)
 import Data.Set qualified as Set (empty)
 import Data.Text as T (Text, take, unpack)
 import Data.Void (Void)
-import Text.Megaparsec (MonadParsec (eof), Parsec, anySingle, choice, getParserState, many, manyTill, noneOf, notFollowedBy, oneOf, satisfy, stateInput, stateOffset, token, try, (<?>), parseError, ParseError(..))
-import qualified Text.Megaparsec as MP (match)
+import Text.Megaparsec (MonadParsec (eof), ParseError (..), Parsec, anySingle, choice, getParserState, many, manyTill, noneOf, notFollowedBy, oneOf, parseError, satisfy, stateInput, stateOffset, token, try, (<?>))
+import Text.Megaparsec qualified as MP (match)
 import Text.Megaparsec.Char (char, string)
 import Text.Megaparsec.Debug (dbg')
 
@@ -32,7 +32,8 @@ data Pattern
   | Group [Pattern] -- "(...)"
   | Wildcard -- "."
   | BackRef Int -- "\1"
-  deriving (Show)
+  | PlaceHolder
+  deriving (Show, Eq)
 
 type Parser = Parsec Void T.Text
 
@@ -123,22 +124,22 @@ negativeParser = Neg <$> (string "[^" *> manyTill (charParser >>= returnChar) (c
       _ -> error "Char pattern expected"
 
 match :: Matcher
-match = matchWithGroups []
+match ps= matchWithGroups [] ps $> ()
   where
-    matchWithGroups _  [] = pure ()
-    matchWithGroups gs (Digit : ps) =  satisfy isDigit *> matchWithGroups gs ps
+    matchWithGroups gs [] = pure gs
+    matchWithGroups gs (Digit : ps) = satisfy isDigit *> matchWithGroups gs ps
     matchWithGroups gs (AlphaNum : ps) = satisfy isAlphaNum *> matchWithGroups gs ps
     matchWithGroups gs (Char c : ps) = char c *> matchWithGroups gs ps
-    matchWithGroups _  (Pos [] : _) = do
-        state <- getParserState
-        let processed = stateOffset state
-        parseError $ FancyError processed Set.empty
+    matchWithGroups _ (Pos [] : _) = do
+      state <- getParserState
+      let processed = stateOffset state
+      parseError $ FancyError processed Set.empty
     matchWithGroups gs (Alt p1 p2 : xs) = try (matchWithGroups gs (p1 ++ xs)) <|> matchWithGroups gs (p2 ++ xs)
     matchWithGroups gs (Pos (c : cs) : xs) = matchWithGroups gs (Alt [Char c] [Pos cs] : xs)
     matchWithGroups gs (Neg [] : xs) = anySingle *> matchWithGroups gs xs
     matchWithGroups gs (Neg (p : ps) : xs) = notFollowedBy (char p) *> matchWithGroups gs (Neg ps : xs)
     matchWithGroups gs (((Optional p) : ps)) = try (matchWithGroups gs (p : ps)) <|> matchWithGroups gs ps
-    matchWithGroups gs (((ZeroOrMore p) : ps)) = try (matchWithGroups gs (p: ZeroOrMore p : ps)) <|> matchWithGroups gs ps
+    matchWithGroups gs (((ZeroOrMore p) : ps)) = try (matchWithGroups gs (p : ZeroOrMore p : ps)) <|> matchWithGroups gs ps
     matchWithGroups gs (((OneOrMore p) : ps)) = matchWithGroups gs (p : ZeroOrMore p : ps)
     matchWithGroups gs (Start : ps) = do
       state <- getParserState
@@ -146,14 +147,24 @@ match = matchWithGroups []
       if processed == 0
         then matchWithGroups gs ps
         else parseError $ FancyError processed Set.empty
-    matchWithGroups _ [End] = eof
+    matchWithGroups gs [End] = eof $> gs
     matchWithGroups _ (End : xs) = error "Invalid Pattern"
+    matchWithGroups _ (PlaceHolder : xs) = error "Invalid Pattern"
     matchWithGroups gs (Wildcard : xs) = anySingle *> matchWithGroups gs xs
     matchWithGroups gs (Group ps : xs) = do
-      (consumed, _) <-  dbg' "groupDbg" $ MP.match (matchWithGroups gs ps)
+      (consumed, groups) <- MP.match (matchWithGroups (gs++[[PlaceHolder]]) ps)
       let patt = Char <$> T.unpack consumed
-      matchWithGroups (gs ++ [patt]) xs
-    matchWithGroups gs (BackRef x : ps) = matchWithGroups gs ((gs !! (x - 1)) ++ ps)
+      dbg' ("grouping "++show consumed ++" "++show groups ++ " " ++show patt) $ pure ()
+      matchWithGroups (replaceUndefined groups patt) xs
+    matchWithGroups gs (BackRef x : ps) = dbg' ("backRef "++show x ++" "++show gs) $ matchWithGroups gs ((gs !! (x - 1)) ++ ps)
+
+replaceUndefined :: [[Pattern]] -> [Pattern] -> [[Pattern]]
+replaceUndefined [] _ = []
+replaceUndefined ([PlaceHolder]: xs) x
+    | isLast xs = x:xs
+    | otherwise = [PlaceHolder]: replaceUndefined xs x
+    where
+      isLast = notElem [PlaceHolder]
 
 partialMatch :: Matcher -> Matcher
 partialMatch match p = skipManyTill anySingle (try $ match p) <* many anySingle <* eof
