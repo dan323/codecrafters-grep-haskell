@@ -113,7 +113,7 @@ disjointCharParser :: PatternParser
 disjointCharParser = Pos <$> (char '[' *> manyTill ((\(Char c) -> c) <$> charParser) (char ']'))
 
 disjointPatternParser :: PatternParser
-disjointPatternParser = char '(' *> (Alt <$> many patternWithRepetitionParser) <*> (char '|' *> many patternWithRepetitionParser) <* char ')'
+disjointPatternParser = char '(' *> (Group . L.singleton <$> (Alt <$> many patternWithRepetitionParser <*> (char '|' *> many patternWithRepetitionParser) <* char ')'))
 
 negativeParser :: PatternParser
 negativeParser = Neg <$> (string "[^" *> manyTill (charParser >>= returnChar) (char ']'))
