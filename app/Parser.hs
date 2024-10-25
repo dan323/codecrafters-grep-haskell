@@ -135,7 +135,7 @@ match = matchWithGroups []
         parseError $ FancyError processed Set.empty
     matchWithGroups gs (Alt p1 p2 : xs) = try (matchWithGroups gs (p1 ++ xs)) <|> matchWithGroups gs (p2 ++ xs)
     matchWithGroups gs (Pos (c : cs) : xs) = matchWithGroups gs (Alt [Char c] [Pos cs] : xs)
-    matchWithGroups gs (Neg [] : xs) = anySingle $> ()
+    matchWithGroups gs (Neg [] : xs) = anySingle *> matchWithGroups gs xs
     matchWithGroups gs (Neg (p : ps) : xs) = notFollowedBy (char p) *> matchWithGroups gs (Neg ps : xs)
     matchWithGroups gs (((Optional p) : ps)) = try (matchWithGroups gs (p : ps)) <|> matchWithGroups gs ps
     matchWithGroups gs (((ZeroOrMore p) : ps)) = try (matchWithGroups gs (p: ZeroOrMore p : ps)) <|> matchWithGroups gs ps
