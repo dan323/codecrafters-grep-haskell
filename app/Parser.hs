@@ -148,15 +148,20 @@ match ps= matchWithGroups [] ps $> ()
         then matchWithGroups gs ps
         else parseError $ FancyError processed Set.empty
     matchWithGroups gs [End] = eof $> gs
-    matchWithGroups _ (End : xs) = error "Invalid Pattern"
-    matchWithGroups _ (PlaceHolder : xs) = error "Invalid Pattern"
+    matchWithGroups gs (End : xs) = do
+      state <- getParserState
+      let processed = stateOffset state
+      parseError $ FancyError processed Set.empty
+    matchWithGroups _ (PlaceHolder : xs) = do
+      state <- getParserState
+      let processed = stateOffset state
+      parseError $ FancyError processed Set.empty
     matchWithGroups gs (Wildcard : xs) = anySingle *> matchWithGroups gs xs
     matchWithGroups gs (Group ps : xs) = do
       (consumed, groups) <- MP.match (matchWithGroups (gs++[[PlaceHolder]]) ps)
       let patt = Char <$> T.unpack consumed
-      dbg' ("grouping "++show consumed ++" "++show groups ++ " " ++show patt) $ pure ()
       matchWithGroups (replaceUndefined groups patt) xs
-    matchWithGroups gs (BackRef x : ps) = dbg' ("backRef "++show x ++" "++show gs) $ matchWithGroups gs ((gs !! (x - 1)) ++ ps)
+    matchWithGroups gs (BackRef x : ps) = matchWithGroups gs ((gs !! (x - 1)) ++ ps)
 
 replaceUndefined :: [[Pattern]] -> [Pattern] -> [[Pattern]]
 replaceUndefined [] _ = []
@@ -165,7 +170,7 @@ replaceUndefined ([PlaceHolder]: xs) x
     | otherwise = [PlaceHolder]: replaceUndefined xs x
     where
       isLast = notElem [PlaceHolder]
-replaceUndefined xs t = xs
+replaceUndefined (x:xs) t = x: replaceUndefined xs t
 
 partialMatch :: Matcher -> Matcher
 partialMatch match p = skipManyTill anySingle (try $ match p) <* many anySingle <* eof
