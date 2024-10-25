@@ -12,7 +12,8 @@ import Data.List as L (singleton)
 import Data.Set qualified as Set (empty)
 import Data.Text as T (Text, take, unpack)
 import Data.Void (Void)
-import Text.Megaparsec (MonadParsec (eof), Parsec, anySingle, choice, getParserState, many, manyTill, noneOf, oneOf, satisfy, stateInput, stateOffset, token, try, (<?>), parseError, ParseError(..))
+import Text.Megaparsec (MonadParsec (eof), Parsec, anySingle, choice, getParserState, many, manyTill, noneOf, notFollowedBy, oneOf, satisfy, stateInput, stateOffset, token, try, (<?>), parseError, ParseError(..))
+import qualified Text.Megaparsec as MP (match)
 import Text.Megaparsec.Char (char, string)
 import Text.Megaparsec.Debug (dbg')
 
@@ -135,11 +136,7 @@ match = matchWithGroups []
     matchWithGroups gs (Alt p1 p2 : xs) = try (matchWithGroups gs (p1 ++ xs)) <|> matchWithGroups gs (p2 ++ xs)
     matchWithGroups gs (Pos (c : cs) : xs) = matchWithGroups gs (Alt [Char c] [Pos cs] : xs)
     matchWithGroups gs (Neg [] : xs) = anySingle $> ()
-    matchWithGroups gs (Neg (p : ps) : xs) = try (char p *> (do
-        state <- getParserState
-        let processed = stateOffset state
-        parseError $ FancyError processed Set.empty
-        )) <|> matchWithGroups gs (Neg ps : xs)
+    matchWithGroups gs (Neg (p : ps) : xs) = notFollowedBy (char p) *> matchWithGroups gs (Neg ps : xs)
     matchWithGroups gs (((Optional p) : ps)) = try (matchWithGroups gs (p : ps)) <|> matchWithGroups gs ps
     matchWithGroups gs (((ZeroOrMore p) : ps)) = try (matchWithGroups gs (p: ZeroOrMore p : ps)) <|> matchWithGroups gs ps
     matchWithGroups gs (((OneOrMore p) : ps)) = matchWithGroups gs (p : ZeroOrMore p : ps)
@@ -152,14 +149,8 @@ match = matchWithGroups []
     matchWithGroups _ [End] = eof
     matchWithGroups _ (End : xs) = error "Invalid Pattern"
     matchWithGroups gs (Wildcard : xs) = anySingle *> matchWithGroups gs xs
-    matchWithGroups gs (Group ps : xs) = dbg' "groupDbg" $ do
-      statusA <- getParserState
-      let input = stateInput statusA
-      let initial = stateOffset statusA
-      _ <- matchWithGroups gs ps
-      statusB <- getParserState
-      let end = stateOffset statusB
-      let consumed = T.take (end - initial) input
+    matchWithGroups gs (Group ps : xs) = do
+      (consumed, _) <-  dbg' "groupDbg" $ MP.match (matchWithGroups gs ps)
       let patt = Char <$> T.unpack consumed
       matchWithGroups (gs ++ [patt]) xs
     matchWithGroups gs (BackRef x : ps) = matchWithGroups gs ((gs !! (x - 1)) ++ ps)
