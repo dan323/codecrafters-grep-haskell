@@ -165,6 +165,7 @@ replaceUndefined ([PlaceHolder]: xs) x
     | otherwise = [PlaceHolder]: replaceUndefined xs x
     where
       isLast = notElem [PlaceHolder]
+replaceUndefined xs t = xs
 
 partialMatch :: Matcher -> Matcher
 partialMatch match p = skipManyTill anySingle (try $ match p) <* many anySingle <* eof
